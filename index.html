@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Aplikasi Presensi Siswa - Untuk Guru Se-Indonesia</title>
   <link rel="icon" href="data:,">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js" crossorigin="anonymous"></script>
   <style>
     body { margin: 0; }
     ::-webkit-scrollbar { height: 8px; width: 8px; }
@@ -43,8 +43,13 @@
       }
     }
     window.addEventListener('error', function (e) {
-      showFatalError('Terjadi kesalahan: ' + (e.message || 'tidak diketahui') +
-        (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
+      var detail = e.message || 'tidak diketahui';
+      if (e.error && e.error.stack) {
+        detail += '<br><pre style="white-space:pre-wrap;font-size:11px;margin-top:8px;">' + e.error.stack + '</pre>';
+      } else if (e.filename) {
+        detail += ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')';
+      }
+      showFatalError('Terjadi kesalahan: ' + detail);
     });
     window.addEventListener('unhandledrejection', function (e) {
       showFatalError('Terjadi kesalahan (promise): ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)));
