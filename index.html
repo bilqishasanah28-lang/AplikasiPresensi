@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aplikasi Presensi Siswa - Untuk Guru Se-Indonesia</title>
+  <link rel="icon" href="data:,">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+  <style>
+    body { margin: 0; }
+    ::-webkit-scrollbar { height: 8px; width: 8px; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes zoomIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    .animate-in { animation-duration: 300ms; animation-fill-mode: both; }
+    .fade-in.slide-in-from-bottom-2 { animation-name: fadeInUp; }
+    .zoom-in, .zoom-in-95 { animation-name: zoomIn; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;color:#065f46;">Memuat aplikasi...</div>
+  </div>
+
+  <!-- Kode komponen disimpan sebagai teks biasa (text/plain), lalu ditranspile & dijalankan
+       secara manual di bawah dengan runtime "classic" agar TIDAK menghasilkan
+       pernyataan import ES Module (yang tidak bisa jalan langsung di file HTML biasa). -->
+  <script type="text/plain" id="app-source">
+const { useState, useRef, useEffect } = React;
+const XLSX = window.XLSX;
+
+
+// ID kunci penyimpanan (personal, hanya terlihat oleh masing-masing pengguna di artifact ini)
+const STORAGE_KEY = 'presensi-siswa-state';
+
+const DEFAULT_MASTER = {
+  namaSekolah: '',
+  namaKepsek: '',
+  nipKepsek: '',
+  namaGuru: '',
+  nipGuru: '',
+  jenisGuru: '',
+  mataPelajaran: '',
+  kelas: '',
+  tahunAjaran: '2026/2027',
+  semester: 'I (Ganjil)',
+  customHolidays: [],
+  removedHolidays: []
+};
+
+const DEFAULT_CLASSES = [
+  { id: 'kelas-utama', name: 'Kelas Utama', students: [], attendance: {} }
+];
+
+// Ikon TikTok (tidak tersedia di lucide-react, dibuat manual agar konsisten dengan gaya ikon lain)
+// ==========================================
+// IKON (pengganti lucide-react, dibuat manual sebagai SVG murni
+// agar file ini bisa berjalan mandiri tanpa proses build/npm)
+// ==========================================
+const IconBase = ({ children, size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {children}
+  </svg>
+);
+
+const Users = (p) => <IconBase {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></IconBase>;
+const CalendarDays = (p) => <IconBase {...p}><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></IconBase>;
+const FileSpreadsheet = (p) => <IconBase {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></IconBase>;
+const UserPlus = (p) => <IconBase {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="20" y1="8" x2="20" y2="14" /><line x1="23" y1="11" x2="17" y2="11" /></IconBase>;
+const Trash2 = (p) => <IconBase {...p}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></IconBase>;
+const Download = (p) => <IconBase {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></IconBase>;
+const ClipboardPaste = (p) => <IconBase {...p}><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></IconBase>;
+const Cloud = (p) => <IconBase {...p}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z" /></IconBase>;
+const CheckCircle2 = (p) => <IconBase {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></IconBase>;
+const Info = (p) => <IconBase {...p}><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></IconBase>;
+const PlusCircle = (p) => <IconBase {...p}><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></IconBase>;
+const Layers = (p) => <IconBase {...p}><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></IconBase>;
+const UploadCloud = (p) => <IconBase {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></IconBase>;
+const FileDown = (p) => <IconBase {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><polyline points="9 15 12 18 15 15" /><line x1="12" y1="11" x2="12" y2="18" /></IconBase>;
+const RefreshCw = (p) => <IconBase {...p}><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></IconBase>;
+const Instagram = (p) => <IconBase {...p}><rect x="2" y="2" width="20" height="20" rx="5" ry="5" /><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" /><line x1="17.5" y1="6.5" x2="17.51" y2="6.5" /></IconBase>;
+const Facebook = (p) => <IconBase {...p}><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" /></IconBase>;
+const Youtube = (p) => <IconBase {...p}><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" /><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" /></IconBase>;
+const GraduationCap = (p) => <IconBase {...p}><path d="M22 10 12 5 2 10l10 5 10-5z" /><path d="M6 12v5c3 3 9 3 12 0v-5" /></IconBase>;
+
+const TikTokIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M16.5 3c.3 2.1 1.6 3.6 3.7 3.9v2.6c-1.3.1-2.5-.3-3.7-1v6.4c0 3.1-2.5 5.6-5.6 5.6s-5.6-2.5-5.6-5.6 2.5-5.6 5.6-5.6c.3 0 .6 0 .9.1v2.7c-.3-.1-.6-.2-.9-.2-1.6 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3V3h2.6z" fill="currentColor" />
+  </svg>
+);
+
+const App = () => {
+  const [showPopup, setShowPopup] = useState(true);
+  const [activeTab, setActiveTab] = useState('master');
+
+  // Status penyimpanan (menggantikan Firebase Cloud dengan penyimpanan bawaan Claude)
+  const [isLoaded, setIsLoaded] = useState(false);
+  const isLoadedRef = useRef(false);
+  const [syncStatus, setSyncStatus] = useState('Memuat data... ⏳');
+
+  const [masterData, setMasterData] = useState(DEFAULT_MASTER);
+  const [classes, setClasses] = useState(DEFAULT_CLASSES);
+  const [activeClassId, setActiveClassId] = useState('kelas-utama');
+  const [newClassName, setNewClassName] = useState('');
+
+  const activeClass = classes.find(c => c.id === activeClassId) || classes.at(0) || { id: 'temp', name: 'Belum Ada Kelas', students: [], attendance: {} };
+  const displayClassName = masterData.jenisGuru === 'Guru Kelas' ? (masterData.kelas || 'Kelas Utama') : activeClass.name;
+
+  const [newStudent, setNewStudent] = useState({ nomorInduk: '', nama: '', jk: 'L' });
+  const [showPasteArea, setShowPasteArea] = useState(false);
+  const [pastedData, setPastedData] = useState('');
+  const fileInputRef = useRef(null);
+
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+
+  // Notifikasi & konfirmasi buatan sendiri (window.alert/confirm bawaan browser tidak selalu bisa muncul di dalam artifact)
+  const [toast, setToast] = useState(null); // { message, tone }
+  const [confirmModal, setConfirmModal] = useState(null); // { message, onConfirm }
+
+  const notify = (message, tone = 'info') => {
+    setToast({ message, tone });
+    window.clearTimeout(notify._t);
+    notify._t = window.setTimeout(() => setToast(null), 4000);
+  };
+
+  const askConfirm = (message, onConfirm) => {
+    setConfirmModal({ message, onConfirm });
+  };
+
+  // ==========================================
+  // PENYIMPANAN: MUAT DATA (SAAT DIBUKA & SAAT REFRESH MANUAL)
+  // Versi GitHub Pages memakai localStorage bawaan browser (tersimpan per-perangkat/per-browser)
+  // ==========================================
+  const loadData = ({ manual = false } = {}) => {
+    if (manual) setSyncStatus('Menyegarkan... ⏳');
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data.masterData) setMasterData({ ...DEFAULT_MASTER, ...data.masterData });
+        if (data.classes && data.classes.length > 0) {
+          setClasses(data.classes);
+          setActiveClassId(prev => data.classes.some(c => c.id === prev) ? prev : data.classes.at(0).id);
+        }
+      }
+      setSyncStatus('Tersimpan ✅');
+    } catch (err) {
+      setSyncStatus(manual ? 'Gagal Menyegarkan ⚠️' : 'Data Baru 📝');
+    } finally {
+      isLoadedRef.current = true;
+      setIsLoaded(true);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleManualRefresh = () => {
+    loadData({ manual: true });
+  };
+
+  // ==========================================
+  // PENYIMPANAN: SIMPAN OTOMATIS SAAT DATA BERUBAH
+  // ==========================================
+  useEffect(() => {
+    if (!isLoaded) return;
+    const saveData = () => {
+      setSyncStatus('Menyimpan... ⏳');
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ masterData, classes }));
+        setSyncStatus('Tersimpan ✅');
+      } catch (err) {
+        setSyncStatus('Gagal Simpan ⚠️');
+      }
+    };
+    const timeoutId = setTimeout(saveData, 1200);
+    return () => clearTimeout(timeoutId);
+  }, [masterData, classes, isLoaded]);
+
+  // ==========================================
+  // UTILITIES: KALENDER & HARI LIBUR
+  // ==========================================
+  const getAutoHoliday = (dateStr) => {
+    const dateObj = new Date(dateStr);
+    if (dateObj.getDay() === 0) return true;
+    const md = dateStr.slice(5);
+    const fixedHolidays = ['01-01', '05-01', '06-01', '08-17', '12-25'];
+    if (fixedHolidays.includes(md)) return true;
+
+    const movingHolidays = [
+      '2024-02-08', '2024-02-09', '2024-02-10', '2024-03-11', '2024-03-12', '2024-03-29', '2024-03-31',
+      '2024-04-10', '2024-04-11', '2024-04-12', '2024-05-09', '2024-05-10', '2024-05-23', '2024-05-24',
+      '2024-06-17', '2024-06-18', '2025-01-27', '2025-01-29', '2025-03-29', '2025-03-31', '2025-04-01',
+      '2025-04-18', '2025-05-12', '2025-05-29', '2025-06-06', '2026-02-17', '2026-03-19', '2026-03-20',
+      '2026-03-21', '2026-04-03', '2026-05-01', '2026-05-14', '2026-05-27', '2027-02-08', '2027-03-09',
+      '2027-03-10', '2027-03-11', '2027-03-26', '2027-05-06', '2027-05-16', '2027-10-29', '2028-01-28',
+      '2028-02-26', '2028-02-27', '2028-03-22', '2028-04-14', '2028-05-05', '2028-05-25', '2029-02-13',
+      '2029-02-15', '2029-02-16', '2029-03-30', '2029-04-24', '2029-05-10', '2030-02-04', '2030-02-05',
+      '2030-02-06', '2030-03-05', '2030-04-13', '2030-04-19', '2030-05-02'
+    ];
+    if (movingHolidays.includes(dateStr)) return true;
+    return false;
+  };
+
+  const checkIsHoliday = (yearMonth, day) => {
+    const dateStr = `${yearMonth}-${String(day).padStart(2, '0')}`;
+    if (masterData.removedHolidays?.includes(dateStr)) return false;
+    if (masterData.customHolidays?.includes(dateStr)) return true;
+    return getAutoHoliday(dateStr);
+  };
+
+  const toggleHoliday = (dateStr) => {
+    setMasterData(prev => {
+      const added = prev.customHolidays || [];
+      const removed = prev.removedHolidays || [];
+      const isAuto = getAutoHoliday(dateStr);
+
+      let isCurrentlyHoliday = false;
+      if (added.includes(dateStr)) isCurrentlyHoliday = true;
+      else if (removed.includes(dateStr)) isCurrentlyHoliday = false;
+      else if (isAuto) isCurrentlyHoliday = true;
+
+      if (isCurrentlyHoliday) {
+        if (added.includes(dateStr)) {
+          return { ...prev, customHolidays: added.filter(d => d !== dateStr) };
+        } else {
+          return { ...prev, removedHolidays: [...removed, dateStr] };
+        }
+      } else {
+        if (removed.includes(dateStr)) {
+          return { ...prev, removedHolidays: removed.filter(d => d !== dateStr) };
+        } else {
+          return { ...prev, customHolidays: [...added, dateStr] };
+        }
+      }
+    });
+  };
+
+  // ==========================================
+  // HANDLERS APLIKASI
+  // ==========================================
+  const handleMasterChange = (e) => {
+    const { name, value } = e.target;
+    setMasterData(prev => ({
+      ...prev,
+      [name]: name === 'namaSekolah' ? value.toUpperCase() : value
+    }));
+    if (name === 'jenisGuru' && value === 'Guru Kelas') {
+      if (classes.length > 0) setActiveClassId(classes.at(0).id);
+    }
+  };
+
+  const updateActiveClass = (updaterFn) => {
+    setClasses(prev => prev.map(c =>
+      c.id === activeClassId ? { ...c, ...updaterFn(c) } : c
+    ));
+  };
+
+  const addClass = () => {
+    if (newClassName.trim()) {
+      const newClass = { id: Date.now().toString(), name: newClassName.trim(), students: [], attendance: {} };
+      setClasses(prev => [...prev, newClass]);
+      setActiveClassId(newClass.id);
+      setNewClassName('');
+    }
+  };
+
+  const removeClass = (id) => {
+    if (classes.length <= 1) {
+      notify('Anda harus memiliki minimal 1 kelas aktif.', 'warn');
+      return;
+    }
+    askConfirm("Apakah Anda yakin ingin menghapus kelas ini beserta seluruh data siswanya? Tindakan ini tidak bisa dibatalkan.", () => {
+      const filtered = classes.filter(c => c.id !== id);
+      setClasses(filtered);
+      if (activeClassId === id) setActiveClassId(filtered.at(0).id);
+      notify('Kelas berhasil dihapus.', 'success');
+    });
+  };
+
+  const addStudent = () => {
+    if (!newStudent.nomorInduk.trim() || !newStudent.nama.trim()) {
+      notify('Nomor Induk dan Nama Siswa wajib diisi sebelum menambahkan siswa.', 'warn');
+      return;
+    }
+    updateActiveClass(c => ({
+      students: [...(c.students || []), { ...newStudent, id: Date.now().toString() }]
+    }));
+    setNewStudent({ nomorInduk: '', nama: '', jk: 'L' });
+  };
+
+  const removeStudent = (id) => {
+    updateActiveClass(c => ({
+      students: (c.students || []).filter(s => s.id !== id)
+    }));
+  };
+
+  // Memproses baris data (array of array) menjadi daftar siswa - dipakai untuk file Excel/CSV maupun teks tempel
+  const processRows = (rows) => {
+    const newStudentsList = [];
+    let startIdx = 0;
+    let skipped = 0;
+
+    if (rows.length > 0) {
+      const firstRowStr = (rows.at(0) || []).join(' ').toLowerCase();
+      if (firstRowStr.includes('induk') || firstRowStr.includes('nama') || firstRowStr.includes('urt')) startIdx = 1;
+    }
+
+    for (let i = startIdx; i < rows.length; i++) {
+      const rawColumns = rows.at(i) || [];
+      const columns = rawColumns
+        .map(c => (c === null || c === undefined) ? '' : String(c).trim().replace(/['"]/g, ''))
+        .filter(c => c !== '');
+
+      if (columns.length === 0) continue;
+
+      let nomorInduk = '', nama = '', jk = '';
+
+      if (columns.length >= 4) {
+        // Format: URT | NOMOR INDUK | NAMA | L/P
+        nomorInduk = columns.at(1) || '';
+        nama = columns.at(2) || '';
+        jk = (columns.at(3) || '').toUpperCase();
+      } else if (columns.length === 3) {
+        // Format: NOMOR INDUK | NAMA | L/P
+        nomorInduk = columns.at(0) || '';
+        nama = columns.at(1) || '';
+        jk = (columns.at(2) || '').toUpperCase();
+      } else if (columns.length === 2) {
+        nomorInduk = columns.at(0) || '';
+        nama = columns.at(1) || '';
+      } else {
+        skipped++;
+        continue;
+      }
+
+      if (nomorInduk || nama) {
+        if (jk !== 'L' && jk !== 'P') jk = '-';
+        newStudentsList.push({
+          id: Date.now().toString() + i + Math.random(),
+          nomorInduk: nomorInduk || '-',
+          nama: nama || 'Tanpa Nama',
+          jk: jk
+        });
+      } else {
+        skipped++;
+      }
+    }
+
+    if (newStudentsList.length > 0) {
+      updateActiveClass(c => ({
+        students: [...(c.students || []), ...newStudentsList]
+      }));
+    }
+    return { added: newStudentsList.length, skipped };
+  };
+
+  // Mengubah teks tempel menjadi baris (array of array), lalu diproses lewat processRows
+  const processImportedText = (textData) => {
+    if (!textData) return { added: 0, skipped: 0 };
+    const splitRow = (row) => {
+      if (row.includes('\t')) return row.split('\t');
+      if (row.includes(';')) return row.split(';');
+      if (row.includes(',')) return row.split(',');
+      if (/\s{2,}/.test(row)) return row.split(/\s{2,}/);
+      return row.split(/\s+/);
+    };
+    const rows = textData.split('\n').map(r => splitRow(r.trim()));
+    return processRows(rows);
+  };
+
+  const handlePasteSubmit = () => {
+    if (!pastedData.trim()) return;
+    const { added, skipped } = processImportedText(pastedData);
+    if (added === 0) {
+      notify('Tidak ada data siswa yang terbaca. Pastikan setiap baris memiliki minimal Nomor Induk dan Nama, dipisahkan tab, koma, atau spasi ganda.', 'warn');
+      return;
+    }
+    if (skipped > 0) {
+      notify(`${added} siswa berhasil ditambahkan. ${skipped} baris dilewati karena formatnya tidak dikenali.`, 'success');
+    }
+    setPastedData('');
+    setShowPasteArea(false);
+  };
+
+  // Upload file Excel (.xlsx/.xls) atau CSV, dibaca dan diproses menjadi daftar siswa
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        const { added, skipped } = processRows(rows);
+        if (added === 0) {
+          notify('Tidak ada data siswa yang terbaca dari file. Pastikan file berisi kolom Nomor Induk dan Nama Siswa (lihat contoh di Unduh Template Excel).', 'warn');
+        } else if (skipped > 0) {
+          notify(`${added} siswa berhasil diimpor dari file. ${skipped} baris dilewati karena formatnya tidak dikenali.`, 'success');
+        }
+      } catch (err) {
+        notify('Gagal membaca file. Pastikan file berformat .xlsx, .xls, atau .csv dan tidak rusak.', 'error');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
+
+  const downloadStudentTemplate = () => {
+    const wb = XLSX.utils.book_new();
+    const templateData = [
+      ['Nomor Induk', 'Nama Siswa', 'L/P'],
+      ['7302', 'A.SULTHAN ADINATA MASYHUR', 'L'],
+      ['7285', 'ADEEVA MIKHAYLA MEANDA', 'P']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(templateData);
+    ws['!cols'] = [{ wch: 14 }, { wch: 30 }, { wch: 6 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Data Siswa');
+    XLSX.writeFile(wb, 'Template_Data_Siswa.xlsx');
+  };
+
+  const handleAttendanceChange = (studentId, status) => {
+    updateActiveClass(c => ({
+      attendance: {
+        ...(c.attendance || {}),
+        [selectedDate]: {
+          ...(c.attendance?.[selectedDate] || {}),
+          [studentId]: status,
+          _confirmed: false
+        }
+      }
+    }));
+  };
+
+  const handleCellClick = (studentId, dateStr) => {
+    const [year, month, day] = dateStr.split('-');
+    if (checkIsHoliday(`${year}-${month}`, parseInt(day))) return;
+
+    updateActiveClass(c => {
+      const att = c.attendance || {};
+      const dayData = att[dateStr] || {};
+      const isConfirmed = dayData._confirmed;
+
+      let nextStatus = 'H';
+      if (!isConfirmed) {
+        nextStatus = 'H';
+      } else {
+        const current = dayData[studentId] || 'H';
+        if (current === 'H') nextStatus = 'S';
+        else if (current === 'S') nextStatus = 'I';
+        else if (current === 'I') nextStatus = 'A';
+        else if (current === 'A') nextStatus = '';
+      }
+
+      const newDayData = { ...dayData, _confirmed: true };
+      if (nextStatus === '') {
+        delete newDayData[studentId];
+      } else {
+        newDayData[studentId] = nextStatus;
+      }
+
+      return { attendance: { ...att, [dateStr]: newDayData } };
+    });
+  };
+
+  const handleConfirmAttendance = () => {
+    if (!selectedDate) return;
+    updateActiveClass(c => ({
+      attendance: {
+        ...(c.attendance || {}),
+        [selectedDate]: {
+          ...(c.attendance?.[selectedDate] || {}),
+          _confirmed: true
+        }
+      }
+    }));
+  };
+
+  const getStatus = (studentId, date) => {
+    return activeClass.attendance?.[date]?.[studentId] || '';
+  };
+
+  const getDaysInMonth = (yearMonth) => {
+    if (!yearMonth) return 0;
+    const [year, month] = yearMonth.split('-');
+    return new Date(year, month, 0).getDate();
+  };
+
+  const calculateRecap = () => {
+    const daysInMonth = getDaysInMonth(selectedMonth);
+    let totalHariEfektif = 0;
+    const currentStudents = activeClass.students || [];
+    const currentAttendance = activeClass.attendance || {};
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${selectedMonth}-${String(d).padStart(2, '0')}`;
+      const isHoliday = checkIsHoliday(selectedMonth, d);
+      if (currentAttendance[dateStr]?._confirmed && !isHoliday) {
+        totalHariEfektif++;
+      }
+    }
+
+    const recap = currentStudents.map(student => {
+      let H = 0, S = 0, I = 0, A = 0;
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${selectedMonth}-${String(d).padStart(2, '0')}`;
+        const isHoliday = checkIsHoliday(selectedMonth, d);
+        if (currentAttendance[dateStr]?._confirmed && !isHoliday) {
+          const status = getStatus(student.id, dateStr) || 'H';
+          if (status === 'H') H++;
+          if (status === 'S') S++;
+          if (status === 'I') I++;
+          if (status === 'A') A++;
+        }
+      }
+      return { ...student, H, S, I, A };
+    });
+
+    const totalS = recap.reduce((acc, curr) => acc + curr.S, 0);
+    const totalI = recap.reduce((acc, curr) => acc + curr.I, 0);
+    const totalA = recap.reduce((acc, curr) => acc + curr.A, 0);
+    const totalPotensi = currentStudents.length * totalHariEfektif;
+
+    const pSakit = totalPotensi ? ((totalS / totalPotensi) * 100).toFixed(2) : 0;
+    const pIzin = totalPotensi ? ((totalI / totalPotensi) * 100).toFixed(2) : 0;
+    const pAlpa = totalPotensi ? ((totalA / totalPotensi) * 100).toFixed(2) : 0;
+    const pTotal = totalPotensi ? (((totalS + totalI + totalA) / totalPotensi) * 100).toFixed(2) : 0;
+
+    return { recap, totalHariEfektif, daysInMonth, pSakit, pIzin, pAlpa, pTotal };
+  };
+
+  const generateRecapHtml = ({ forPrint = false } = {}) => {
+    const { recap, totalHariEfektif, daysInMonth, pSakit, pIzin, pAlpa, pTotal } = calculateRecap();
+    const currentAttendance = activeClass.attendance || {};
+
+    const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+    const [selYear, selMonth] = selectedMonth.split('-');
+    const formattedMonthYear = `${monthNames[parseInt(selMonth) - 1]}/ ${selYear}`;
+
+    let tableHeaders = '';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const isHoliday = checkIsHoliday(selectedMonth, d);
+      const borderStyle = isHoliday
+        ? 'border-left: 2.5px solid red; border-right: 2.5px solid red; border-top: 1px solid black; border-bottom: 1px solid black; background-color: #fee2e2; color: #b91c1c;'
+        : 'border: 1px solid black;';
+      tableHeaders += `<th style="width: 1.6%; ${borderStyle}">${d}</th>`;
+    }
+
+    let tableRows = '';
+    recap.forEach((student, index) => {
+      let dailyCells = '';
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${selectedMonth}-${String(d).padStart(2, '0')}`;
+        const isConfirmed = currentAttendance[dateStr]?._confirmed;
+        const isHoliday = checkIsHoliday(selectedMonth, d);
+
+        let cellVal = '';
+        if (isConfirmed && !isHoliday) {
+          const stat = getStatus(student.id, dateStr) || 'H';
+          cellVal = stat === 'H' ? '' : stat;
+        }
+
+        const cellStyle = isHoliday
+          ? 'border-left: 2.5px solid red; border-right: 2.5px solid red; border-top: 1px solid black; border-bottom: 1px solid black; background-color: #fff0f0;'
+          : 'border: 1px solid black;';
+
+        dailyCells += `<td style="${cellStyle}">${cellVal}</td>`;
+      }
+
+      tableRows += `
+        <tr>
+          <td style="border: 1px solid black;">${index + 1}</td>
+          <td style="border: 1px solid black;">${student.nomorInduk}</td>
+          <td style="border: 1px solid black; text-align: left; padding-left: 0.2cm;">${student.nama}</td>
+          <td style="border: 1px solid black;">${student.jk || '-'}</td>
+          ${dailyCells}
+          <td style="border: 1px solid black;">${student.A || ''}</td>
+          <td style="border: 1px solid black;">${student.I || ''}</td>
+          <td style="border: 1px solid black;">${student.S || ''}</td>
+        </tr>
+      `;
+    });
+
+    const pageStyle = forPrint
+      ? '@page { size: landscape; margin: 1.2cm; }'
+      : "@page Section1 { size: 841.9pt 595.3pt; mso-page-orientation: landscape; margin: 1.2cm; } div.Section1 { page: Section1; }";
+
+    const htmlContent = `
+      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <head>
+        <meta charset="utf-8">
+        <title>Daftar Hadir Siswa - ${displayClassName}</title>
+        <style>
+          ${pageStyle}
+          body { font-family: 'Times New Roman', serif; }
+          .header { text-align: center; }
+          .info-table { width: 100%; border: none; margin-bottom: 10px; font-size: 11pt; }
+          .info-table td { border: none; padding: 2px; vertical-align: top; }
+          .data-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          .data-table th, .data-table td { padding: 0.1cm; text-align: center; font-size: 9pt; }
+          .data-table th { background-color: #f2f2f2; }
+          .summary-table { width: 100%; border: none; margin-top: 15px; font-size: 10pt; font-weight: bold; }
+          .ttd-table { width: 100%; border: none; margin-top: 30px; font-size: 11pt; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="Section1">
+          <div class="header">
+            <h2 style="margin:0;">DAFTAR HADIR SISWA</h2>
+            <h3 style="margin:0 0 15px 0;">${masterData.namaSekolah || 'NAMA SEKOLAH'}</h3>
+          </div>
+          <table class="info-table">
+            <tr>
+              <td style="width: 12%;">KELAS</td>
+              <td style="width: 38%;">: ${displayClassName}</td>
+              <td style="width: 12%;">BULAN</td>
+              <td style="width: 38%;">: ${formattedMonthYear}</td>
+            </tr>
+            <tr>
+              <td>TP.</td>
+              <td>: ${masterData.tahunAjaran.replace('/', ' / ')}</td>
+              <td>${masterData.jenisGuru === 'Guru Mata Pelajaran' ? 'MAPEL' : ''}</td>
+              <td>${masterData.jenisGuru === 'Guru Mata Pelajaran' ? `: ${masterData.mataPelajaran}` : ''}</td>
+            </tr>
+          </table>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th colspan="2" style="border: 1px solid black;">NOMOR</th>
+                <th rowspan="2" style="width: 20%; border: 1px solid black;">NAMA SISWA</th>
+                <th rowspan="2" style="width: 3%; border: 1px solid black;">L/P</th>
+                <th colspan="${daysInMonth}" style="border: 1px solid black;">TANGGAL</th>
+                <th colspan="3" style="width: 6%; border: 1px solid black;">KET</th>
+              </tr>
+              <tr>
+                <th style="width: 3%; border: 1px solid black;">URT</th>
+                <th style="width: 6%; border: 1px solid black;">INDUK</th>
+                ${tableHeaders}
+                <th style="border: 1px solid black; width: 2%;">A</th>
+                <th style="border: 1px solid black; width: 2%;">I</th>
+                <th style="border: 1px solid black; width: 2%;">S</th>
+              </tr>
+            </thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+          <table class="summary-table">
+            <tr><td>Jumlah Hari Efektif: ${totalHariEfektif} Hari</td></tr>
+            <tr><td>Prosentase Sakit: ${pSakit}%</td></tr>
+            <tr><td>Prosentase Izin: ${pIzin}%</td></tr>
+            <tr><td>Prosentase Alpa: ${pAlpa}%</td></tr>
+            <tr><td style="font-size: 11pt; color: #cc0000;">TOTAL KETIDAKHADIRAN: ${pTotal}%</td></tr>
+          </table>
+          <table class="ttd-table">
+            <tr>
+              <td style="width: 50%;">Mengetahui,<br>Kepala Sekolah<br><br><br><br><strong><u>${masterData.namaKepsek || '...'}</u></strong><br>NIP. ${masterData.nipKepsek || '...'}</td>
+              <td style="width: 50%;"><br>Guru<br><br><br><br><strong><u>${masterData.namaGuru || '...'}</u></strong><br>NIP. ${masterData.nipGuru || '...'}</td>
+            </tr>
+          </table>
+        </div>
+      </body>
+      </html>
+    `;
+    return htmlContent;
+  };
+
+  const exportToWord = () => {
+    const htmlContent = generateRecapHtml({ forPrint: false });
+    const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Rekap_${displayClassName}_${selectedMonth}.doc`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Mengosongkan seluruh data absensi (titik/S/I/A) untuk bulan yang sedang dipilih di kelas aktif
+  const clearMonthAttendance = () => {
+    const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+    const [selYear, selMonth] = selectedMonth.split('-');
+    const label = `${monthNames[parseInt(selMonth) - 1]} ${selYear}`;
+
+    askConfirm(`Kosongkan SEMUA data absensi bulan ${label} untuk kelas ${displayClassName}? Tindakan ini tidak bisa dibatalkan.`, () => {
+      updateActiveClass(c => {
+        const att = { ...(c.attendance || {}) };
+        Object.keys(att).forEach(dateStr => {
+          if (dateStr.startsWith(selectedMonth)) {
+            delete att[dateStr];
+          }
+        });
+        return { attendance: att };
+      });
+      notify(`Data absensi bulan ${label} berhasil dikosongkan.`, 'success');
+    });
+  };
+
+
+  const ClassSelector = () => (
+    <div className="mb-4 bg-indigo-50 border border-indigo-200 p-3 rounded-xl flex flex-col md:flex-row items-center justify-between gap-3">
+      <div className="flex items-center gap-2">
+        <Layers size={18} className="text-indigo-600" />
+        <span className="font-bold text-indigo-800 text-sm">Pilih Kelas Aktif:</span>
+      </div>
+      <select
+        value={activeClassId}
+        onChange={(e) => setActiveClassId(e.target.value)}
+        className="p-2 border-2 border-indigo-300 rounded-lg text-sm font-bold text-indigo-700 focus:ring-2 focus:ring-indigo-500 w-full md:w-auto outline-none"
+      >
+        {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+    </div>
+  );
+
+  const { recap, totalHariEfektif, daysInMonth, pSakit, pIzin, pAlpa, pTotal } = calculateRecap();
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans relative">
+
+      {/* MODAL KONFIRMASI BUATAN SENDIRI (pengganti window.confirm) */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-5">
+              <p className="text-sm text-gray-700 font-medium leading-relaxed">{confirmModal.message}</p>
+            </div>
+            <div className="flex border-t border-gray-100">
+              <button
+                onClick={() => setConfirmModal(null)}
+                className="flex-1 py-3 text-sm font-bold text-gray-500 hover:bg-gray-50 transition-colors"
+              >
+                BATAL
+              </button>
+              <button
+                onClick={() => {
+                  const action = confirmModal.onConfirm;
+                  setConfirmModal(null);
+                  if (action) action();
+                }}
+                className="flex-1 py-3 text-sm font-bold text-white bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                YA, LANJUTKAN
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFIKASI BUATAN SENDIRI (pengganti window.alert) */}
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] max-w-[92%] px-4">
+          <div className={`px-4 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2 ${
+            toast.tone === 'success' ? 'bg-green-600 text-white' :
+            toast.tone === 'error' ? 'bg-red-600 text-white' :
+            toast.tone === 'warn' ? 'bg-yellow-500 text-white' :
+            'bg-gray-800 text-white'
+          }`}>
+            {toast.tone === 'success' && <CheckCircle2 size={16} className="flex-shrink-0" />}
+            {toast.tone === 'error' && <Info size={16} className="flex-shrink-0" />}
+            <span>{toast.message}</span>
+          </div>
+        </div>
+      )}
+
+      {showPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-300">
+            <div className="bg-emerald-700 text-white p-4 text-center font-black text-xl tracking-widest border-b-4 border-emerald-900">
+              SELAMAT DATANG, GURU HEBAT INDONESIA
+            </div>
+            <div className="p-5 md:p-6 text-gray-700 text-[13px] md:text-sm">
+              <ol className="list-decimal list-outside ml-4 space-y-2.5 font-medium">
+                <li>Aplikasi ini dapat digunakan oleh guru dari sekolah mana saja di seluruh Indonesia</li>
+                <li>Isi data sekolah dan data guru Anda pada menu 1. DATA, sesuaikan dengan tempat Anda mengajar</li>
+                <li>Data tersimpan otomatis secara personal setiap ada perubahan</li>
+                <li>Isi data siswa per kelas, lalu catat presensi harian</li>
+                <li>Unduh rekap bulanan ke Word untuk arsip/lampiran</li>
+              </ol>
+              <div
+                className="mt-6 flex items-center justify-center gap-3 bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 cursor-pointer hover:bg-emerald-100 transition-colors"
+                onClick={() => setShowPopup(false)}
+              >
+                <div className="w-5 h-5 rounded border-2 border-emerald-700 flex items-center justify-center bg-white flex-shrink-0">
+                  <div className="w-3 h-3 bg-transparent rounded-sm"></div>
+                </div>
+                <label className="font-bold text-emerald-800 cursor-pointer select-none">MULAI GUNAKAN</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <header className="relative overflow-hidden bg-gradient-to-br from-emerald-800 via-emerald-700 to-teal-600 text-white shadow-lg sticky top-0 z-20">
+        {/* Elemen dekoratif */}
+        <div className="pointer-events-none absolute -top-12 -right-8 w-44 h-44 bg-white/10 rounded-full blur-2xl"></div>
+        <div className="pointer-events-none absolute -bottom-16 -left-10 w-40 h-40 bg-teal-300/10 rounded-full blur-2xl"></div>
+
+        <div className="relative px-4 py-4 flex flex-col items-center gap-2.5">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-white/15 flex items-center justify-center backdrop-blur-sm border border-white/25 shadow-inner flex-shrink-0">
+              <GraduationCap size={24} />
+            </div>
+            <div className="text-left">
+              <h1 className="text-base md:text-xl font-black tracking-wide leading-tight">APLIKASI PRESENSI SISWA</h1>
+              <span className="text-[10px] md:text-xs italic text-emerald-100 font-medium tracking-wide">Untuk Guru Se-Indonesia</span>
+            </div>
+          </div>
+          <div className="bg-white/15 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] md:text-xs font-bold flex items-center gap-1.5 border border-white/20 shadow-sm">
+            <Cloud size={14} /> {syncStatus}
+          </div>
+        </div>
+      </header>
+
+      <div className="flex justify-around bg-white shadow-sm border-b sticky top-[104px] z-10 overflow-x-auto">
+        <button onClick={() => setActiveTab('master')} className={`flex-1 min-w-[100px] py-3 text-xs md:text-sm font-semibold flex flex-col items-center gap-1 border-b-[3px] transition-colors ${activeTab === 'master' ? 'border-emerald-700 text-emerald-700' : 'border-transparent text-gray-500'}`}><Users size={18} /> 1. DATA</button>
+        <button onClick={() => setActiveTab('harian')} className={`flex-1 min-w-[100px] py-3 text-xs md:text-sm font-semibold flex flex-col items-center gap-1 border-b-[3px] transition-colors ${activeTab === 'harian' ? 'border-emerald-700 text-emerald-700' : 'border-transparent text-gray-500'}`}><CalendarDays size={18} /> 2. ABSENSI HARIAN</button>
+        <button onClick={() => setActiveTab('rekap')} className={`flex-1 min-w-[100px] py-3 text-xs md:text-sm font-semibold flex flex-col items-center gap-1 border-b-[3px] transition-colors ${activeTab === 'rekap' ? 'border-emerald-700 text-emerald-700' : 'border-transparent text-gray-500'}`}><FileSpreadsheet size={18} /> 3. REKAP ABSENSI</button>
+      </div>
+
+      <main className="flex-1 p-4 md:p-6 overflow-y-auto pb-24 max-w-4xl w-full mx-auto">
+
+        {activeTab === 'master' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="bg-green-50 p-5 rounded-xl shadow-sm border border-green-200">
+              <h2 className="font-bold text-green-900 mb-4 border-l-4 border-green-600 pl-3">Informasi Umum Sekolah</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Nama Sekolah</label>
+                  <input type="text" name="namaSekolah" value={masterData.namaSekolah} onChange={handleMasterChange} placeholder="Contoh: SDN 1 METRO PUSAT" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm uppercase font-bold" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Nama Kepala Sekolah</label>
+                  <input type="text" name="namaKepsek" value={masterData.namaKepsek} onChange={handleMasterChange} placeholder="Nama Kepala Sekolah" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">NIP Kepala Sekolah</label>
+                  <input type="text" name="nipKepsek" value={masterData.nipKepsek} onChange={handleMasterChange} placeholder="NIP" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Nama Guru</label>
+                  <input type="text" name="namaGuru" value={masterData.namaGuru} onChange={handleMasterChange} placeholder="Nama lengkap Anda" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">NIP Guru</label>
+                  <input type="text" name="nipGuru" value={masterData.nipGuru} onChange={handleMasterChange} placeholder="NIP" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Tugas</label>
+                  <select name="jenisGuru" value={masterData.jenisGuru} onChange={handleMasterChange} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                    <option value="" disabled hidden>Pilih Tugas</option>
+                    <option value="Guru Kelas">Guru Kelas</option>
+                    <option value="Guru Mata Pelajaran">Guru Mata Pelajaran</option>
+                  </select>
+                </div>
+
+                {masterData.jenisGuru === 'Guru Mata Pelajaran' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Nama Mapel</label>
+                    <input type="text" name="mataPelajaran" value={masterData.mataPelajaran} onChange={handleMasterChange} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+                )}
+
+                {masterData.jenisGuru === 'Guru Kelas' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Kelas</label>
+                    <input type="text" name="kelas" value={masterData.kelas} onChange={handleMasterChange} placeholder="Contoh: 5 A" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Tahun Ajaran</label>
+                  <select name="tahunAjaran" value={masterData.tahunAjaran} onChange={handleMasterChange} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                    {['2024/2025', '2025/2026', '2026/2027', '2027/2028', '2028/2029', '2029/2030'].map(th => <option key={th} value={th}>{th}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Semester</label>
+                  <select name="semester" value={masterData.semester} onChange={handleMasterChange} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                    <option value="I (Ganjil)">I (Ganjil)</option>
+                    <option value="II (Genap)">II (Genap)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {masterData.jenisGuru === 'Guru Mata Pelajaran' && (
+              <div className="bg-yellow-100 p-5 rounded-xl shadow-sm border border-yellow-300">
+                <h2 className="font-bold text-yellow-900 mb-4 border-l-4 border-yellow-600 pl-3">Manajemen Kelas</h2>
+                <div className="bg-white p-4 rounded-xl border border-yellow-200 mb-4 shadow-inner">
+                  <p className="text-xs text-yellow-900 mb-3"><Info size={14} className="inline mr-1" /> Tambahkan kelas yang Anda ajar. <strong>Klik + Tambah Kelas</strong> untuk memisahkan data antarkelas.</p>
+                  <div className="flex gap-2 mb-4">
+                    <input type="text" value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="Contoh: 5B" className="flex-1 p-2 rounded-lg text-sm border border-yellow-300 focus:ring-2 focus:ring-yellow-500" />
+                    <button onClick={addClass} className="bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-yellow-700 transition-colors"><PlusCircle size={16} /> TAMBAH KELAS</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {classes.map(c => (
+                      <div key={c.id} className={`flex items-center gap-2 pl-3 pr-1 py-1 rounded-full text-sm font-bold border-2 cursor-pointer transition-all ${activeClassId === c.id ? 'bg-emerald-700 text-white border-emerald-700 shadow-md' : 'bg-white text-gray-600 border-gray-300 hover:border-emerald-400'}`} onClick={() => setActiveClassId(c.id)}>
+                        {c.name}
+                        <button onClick={(e) => { e.stopPropagation(); removeClass(c.id); }} className="p-1.5 hover:bg-emerald-900 rounded-full text-white/70 hover:text-white transition-colors" title="Hapus Kelas"><Trash2 size={12} /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-orange-50 p-5 rounded-xl shadow-sm border border-orange-200 border-t-4 border-t-orange-500">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
+                <div>
+                  <h2 className="font-bold text-orange-900 text-lg border-l-4 border-orange-600 pl-3">Daftar Siswa: {displayClassName}</h2>
+                  <p className="text-xs text-gray-500 mt-1">Unduh template, isi di Excel, lalu upload kembali file-nya untuk memasukkan siswa ke kelas ini.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={downloadStudentTemplate} className="text-[10px] bg-white text-orange-800 font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-orange-100 transition-all border border-orange-300"><FileDown size={14} /> UNDUH TEMPLATE EXCEL</button>
+                  <button onClick={() => fileInputRef.current?.click()} className="text-[10px] bg-orange-600 text-white font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-orange-700 transition-all border border-orange-600"><UploadCloud size={14} /> UPLOAD FILE EXCEL/CSV</button>
+                  <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" />
+                  <button onClick={() => setShowPasteArea(!showPasteArea)} className="text-[10px] bg-white text-gray-600 font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-gray-100 transition-all border border-gray-300"><ClipboardPaste size={14} /> TEMPEL MANUAL</button>
+                </div>
+              </div>
+
+              <div className="mb-4 bg-orange-100/70 border border-orange-200 text-orange-900 text-xs p-3 rounded-lg flex gap-2 items-start">
+                <Info size={14} className="mt-0.5 flex-shrink-0" />
+                <p><strong>Cara tercepat:</strong> klik <strong>Unduh Template Excel</strong>, isi kolom Nomor Induk, Nama Siswa, dan L/P, simpan file-nya, lalu klik <strong>Upload File Excel/CSV</strong> dan pilih file yang sudah diisi.</p>
+              </div>
+
+              {showPasteArea && (
+                <div className="mb-6 p-4 bg-orange-100 border-2 border-orange-300 rounded-lg animate-in zoom-in-95 duration-200">
+                  <p className="text-xs text-orange-800 mb-3 font-medium">Atau tempel (*Paste*) data secara manual (NOMOR INDUK | NAMA | L/P) ke kotak di bawah untuk memasukkannya ke <strong>{displayClassName}</strong>:</p>
+                  <textarea value={pastedData} onChange={(e) => setPastedData(e.target.value)} placeholder="Paste data (Ctrl+V) di sini..." className="w-full h-32 p-3 text-xs border border-orange-400 rounded-lg font-mono mb-3" />
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setShowPasteArea(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-300">BATAL</button>
+                    <button onClick={handlePasteSubmit} className="px-4 py-2 bg-orange-600 text-white rounded-lg text-xs font-bold shadow flex items-center gap-2 hover:bg-orange-700">PROSES SEKARANG</button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-col md:flex-row gap-2 mb-6">
+                <input type="text" value={newStudent.nomorInduk} onChange={e => setNewStudent({ ...newStudent, nomorInduk: e.target.value })} placeholder="Nomor Induk" className="flex-1 p-2.5 bg-white border border-orange-200 rounded-lg text-sm" />
+                <input type="text" value={newStudent.nama} onChange={e => setNewStudent({ ...newStudent, nama: e.target.value })} placeholder="Nama Lengkap" className="flex-1 p-2.5 bg-white border border-orange-200 rounded-lg text-sm" />
+                <select value={newStudent.jk} onChange={e => setNewStudent({ ...newStudent, jk: e.target.value })} className="flex-1 p-2.5 bg-white border border-orange-200 rounded-lg text-sm">
+                  <option value="L">L</option><option value="P">P</option>
+                </select>
+                <button onClick={addStudent} className="bg-orange-600 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-orange-700 shadow-sm"><UserPlus size={18} /></button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse border border-black">
+                  <thead className="bg-orange-600 text-white font-bold">
+                    <tr><th className="border border-black p-2">NO</th><th className="border border-black p-2">NOMOR INDUK</th><th className="border border-black p-2 text-left">NAMA LENGKAP</th><th className="border border-black p-2">L/P</th><th className="border border-black p-2 bg-gray-800">AKSI</th></tr>
+                  </thead>
+                  <tbody>
+                    {(activeClass.students || []).map((s, i) => (
+                      <tr key={s.id} className={i % 2 === 0 ? 'bg-orange-50' : 'bg-white'}>
+                        <td className="border border-black p-2 text-center">{i + 1}</td>
+                        <td className="border border-black p-2 text-center text-xs">{s.nomorInduk}</td>
+                        <td className="border border-black p-2 font-medium uppercase text-xs">{s.nama}</td>
+                        <td className="border border-black p-2 text-center">{s.jk}</td>
+                        <td className="border border-black p-2 text-center"><button onClick={() => removeStudent(s.id)} className="text-red-600 hover:scale-110 transition-transform"><Trash2 size={16} /></button></td>
+                      </tr>
+                    ))}
+                    {(!activeClass.students || activeClass.students.length === 0) && <tr><td colSpan="5" className="p-10 text-center text-gray-400 italic">Belum ada data siswa di {displayClassName}.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 text-right text-xs text-gray-500 font-medium">Total: {activeClass.students?.length || 0} Siswa</div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'harian' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {masterData.jenisGuru === 'Guru Mata Pelajaran' && <ClassSelector />}
+
+            <div className="bg-green-100 p-5 rounded-xl shadow-md border-l-8 border-green-600 flex flex-col md:flex-row items-center justify-between gap-4 border-green-300">
+              <div className="flex flex-col items-center md:items-start">
+                <span className="text-[10px] font-bold text-black uppercase tracking-widest mb-1">Langkah 1: Pilih Tanggal</span>
+                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="p-3 bg-green-50 border-2 border-green-300 rounded-xl text-sm font-bold text-green-800 focus:outline-none focus:ring-2 focus:ring-green-500 shadow-inner" />
+              </div>
+              <div className="text-center md:text-right">
+                <h3 className="font-bold text-gray-800">{masterData.namaSekolah || 'NAMA SEKOLAH'}</h3>
+                <p className="text-xs font-semibold text-gray-500">Kelas Aktif: {displayClassName}</p>
+              </div>
+            </div>
+
+            {!selectedDate ? (
+              <div className="bg-white p-12 rounded-xl shadow-sm border border-dashed border-gray-300 flex flex-col items-center justify-center text-center">
+                <CalendarDays size={48} className="text-emerald-300 mb-4 animate-bounce" />
+                <h4 className="text-emerald-700 font-bold text-lg mb-1">Pilih Tanggal!</h4>
+                <p className="text-gray-500 text-sm max-w-xs">Silakan pilih tanggal di atas untuk memunculkan daftar absen.</p>
+              </div>
+            ) : (!activeClass.students || activeClass.students.length === 0) ? (
+              <div className="bg-white p-10 rounded-xl text-center">
+                <Users size={40} className="mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500 font-medium">Data siswa untuk {displayClassName} masih kosong.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+                <div className="bg-gray-100 p-3 text-[10px] font-bold text-gray-500 flex justify-between items-center border-b">
+                  <span>DAFTAR PRESENSI SISWA: {displayClassName}</span>
+                  <span className={activeClass.attendance?.[selectedDate]?._confirmed ? 'text-green-600 flex items-center gap-1' : 'text-orange-500 flex items-center gap-1'}>
+                    {activeClass.attendance?.[selectedDate]?._confirmed ? <><CheckCircle2 size={12} /> HARI EFEKTIF TERKONFIRMASI</> : '⚠️ BELUM TERKONFIRMASI (DRAFT)'}
+                  </span>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {(activeClass.students || []).map((student, index) => {
+                    const currentStatus = getStatus(student.id, selectedDate) || 'H';
+                    return (
+                      <div key={student.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${student.jk === 'L' ? 'bg-blue-100 text-blue-600' : 'bg-pink-100 text-pink-600'}`}>{index + 1}</div>
+                          <div>
+                            <div className="text-sm font-bold text-gray-800 uppercase leading-none mb-1">{student.nama}</div>
+                            <div className="text-[10px] font-mono text-gray-400">No. Induk: {student.nomorInduk} | {student.jk}</div>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-4 w-full md:w-auto gap-2" role="group">
+                          {[
+                            { c: 'H', l: 'Hadir', cls: 'bg-green-600 text-white border-green-600' },
+                            { c: 'S', l: 'Sakit', cls: 'bg-yellow-500 text-white border-yellow-500' },
+                            { c: 'I', l: 'Izin', cls: 'bg-blue-500 text-white border-blue-500' },
+                            { c: 'A', l: 'Alpa', cls: 'bg-red-600 text-white border-red-600' }
+                          ].map((st) => (
+                            <button
+                              key={st.c}
+                              onClick={() => handleAttendanceChange(student.id, st.c)}
+                              className={`flex flex-col items-center justify-center gap-0.5 min-w-[64px] md:min-w-[76px] py-3.5 md:py-4 rounded-xl border-2 font-black uppercase transition-all active:scale-95 shadow-sm ${currentStatus === st.c ? st.cls : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-600'}`}
+                            >
+                              <span className="text-lg md:text-xl leading-none">{st.c}</span>
+                              <span className="text-[9px] md:text-[10px] font-bold tracking-wide">{st.l}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="p-6 bg-emerald-50 border-t flex flex-col items-center gap-3">
+                  <p className="text-xs text-gray-500 text-center">Pastikan semua data sudah benar. Klik tombol di bawah untuk memvalidasi dan <strong>menyimpan presensi hari ini</strong>.</p>
+                  <button onClick={handleConfirmAttendance} className={`w-full max-w-sm py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${activeClass.attendance?.[selectedDate]?._confirmed ? 'bg-green-600 text-white' : 'bg-emerald-700 text-white hover:bg-emerald-800 active:scale-95'}`}>
+                    {activeClass.attendance?.[selectedDate]?._confirmed ? <><CheckCircle2 size={20} /> PRESENSI TERSIMPAN & VALID</> : 'SIMPAN & KONFIRMASI PRESENSI'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'rekap' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {masterData.jenisGuru === 'Guru Mata Pelajaran' && <ClassSelector />}
+
+            <div className="flex justify-end gap-2">
+              <button onClick={clearMonthAttendance} disabled={!activeClass.students || activeClass.students.length === 0} className="text-xs bg-white text-red-600 font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-red-50 transition-all border border-red-300 shadow-sm disabled:opacity-50">
+                <Trash2 size={14} /> KOSONGKAN ABSENSI BULAN INI
+              </button>
+              <button onClick={handleManualRefresh} className="text-xs bg-white text-emerald-700 font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-emerald-50 transition-all border border-emerald-300 shadow-sm">
+                <RefreshCw size={14} /> REFRESH DATA
+              </button>
+            </div>
+
+            <div className="bg-green-100 p-5 rounded-xl shadow-sm border border-green-300 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex flex-col items-center md:items-start">
+                <span className="text-xs font-bold text-black uppercase">Periode Rekap: {displayClassName}</span>
+                <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="p-2 border-2 border-green-300 rounded-lg text-sm font-bold text-green-800" />
+              </div>
+              <button onClick={exportToWord} disabled={!activeClass.students || activeClass.students.length === 0} className="w-full md:w-auto bg-blue-600 text-white px-6 py-3 rounded-xl text-sm font-bold shadow-lg hover:bg-blue-700 flex items-center justify-center gap-2 disabled:opacity-50"><Download size={18} /> UNDUH LAPORAN (.DOC)</button>
+            </div>
+
+            <div className="bg-yellow-50 p-1 md:p-5 rounded-xl shadow-sm border border-yellow-200">
+              <div className="flex items-center gap-2 mb-4 mt-2 pl-2 md:pl-0">
+                <h2 className="font-bold text-yellow-900 border-l-4 border-yellow-600 pl-3">Pratinjau Kehadiran Penuh</h2>
+              </div>
+
+              <div className="mb-4 bg-yellow-100 border border-yellow-300 text-yellow-900 text-xs p-3 rounded-lg flex flex-col gap-2">
+                <div className="flex gap-2 items-start"><Info size={16} className="mt-0.5 flex-shrink-0" /><p><strong>Fitur Edit & Delete:</strong> Klik kotak absensi untuk mengubah status: (• ➡️ S ➡️ I ➡️ A ➡️ <strong>Kosong/Hapus</strong>).</p></div>
+                <div className="flex gap-2 items-start"><CalendarDays size={16} className="mt-0.5 flex-shrink-0" /><p><strong>Hari Libur Manual (Bebas Atur):</strong> Klik <strong>Angka Tanggal (Header)</strong> di tabel bawah untuk menjadikan/menghapus hari tersebut sebagai Libur (Bergaris Merah).</p></div>
+              </div>
+
+              <div className="overflow-x-auto w-full pb-4">
+                <table className="w-full text-[10px] md:text-xs border-collapse border border-black mb-6 min-w-[800px] bg-white">
+                  <thead className="bg-gray-100 text-gray-800 font-bold uppercase">
+                    <tr>
+                      <th rowSpan="2" className="border border-black p-1 text-center w-8">NO</th>
+                      <th rowSpan="2" className="border border-black p-2 text-left min-w-[150px]">NAMA SISWA</th>
+                      <th rowSpan="2" className="border border-black p-1 text-center w-8">L/P</th>
+                      <th colSpan={daysInMonth} className="border border-black p-1 text-center bg-gray-200">TANGGAL (KLIK ANGKA UNTUK LIBUR)</th>
+                      <th colSpan="4" className="border border-black p-1 text-center bg-green-50">TOTAL</th>
+                    </tr>
+                    <tr>
+                      {Array.from({ length: daysInMonth }, (_, i) => {
+                        const dateStr = `${selectedMonth}-${String(i + 1).padStart(2, '0')}`;
+                        const isHoliday = checkIsHoliday(selectedMonth, i + 1);
+                        return (
+                          <th
+                            key={i}
+                            onClick={() => toggleHoliday(dateStr)}
+                            title="Klik untuk Tandai/Hapus Hari Libur"
+                            style={isHoliday ? { borderLeft: '2.5px solid red', borderRight: '2.5px solid red', backgroundColor: '#fee2e2', color: '#b91c1c', cursor: 'pointer' } : { cursor: 'pointer' }}
+                            className="border border-black p-1 text-center w-6 font-bold hover:bg-red-200 transition-colors"
+                          >
+                            {i + 1}
+                          </th>
+                        );
+                      })}
+                      <th className="border border-black p-1 text-center text-green-600 w-6">H</th>
+                      <th className="border border-black p-1 text-center text-yellow-600 w-6">S</th>
+                      <th className="border border-black p-1 text-center text-blue-600 w-6">I</th>
+                      <th className="border border-black p-1 text-center text-red-600 w-6">A</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recap.length > 0 ? (
+                      recap.map((s, idx) => (
+                        <tr key={s.id} className={idx % 2 === 0 ? 'bg-emerald-50/20' : 'bg-white'}>
+                          <td className="border border-black p-1 text-center text-gray-600">{idx + 1}</td>
+                          <td className="border border-black p-1 uppercase font-medium whitespace-nowrap truncate">{s.nama}</td>
+                          <td className="border border-black p-1 text-center font-bold text-gray-600">{s.jk}</td>
+
+                          {Array.from({ length: daysInMonth }, (_, i) => {
+                            const dateStr = `${selectedMonth}-${String(i + 1).padStart(2, '0')}`;
+                            const isConfirmed = activeClass.attendance?.[dateStr]?._confirmed;
+                            const isHoliday = checkIsHoliday(selectedMonth, i + 1);
+
+                            let cellVal = '';
+                            if (isConfirmed && !isHoliday) {
+                              const stat = getStatus(s.id, dateStr) || 'H';
+                              cellVal = stat === 'H' ? '•' : stat;
+                            }
+
+                            const cellStyle = isHoliday ? { borderLeft: '2.5px solid red', borderRight: '2.5px solid red', backgroundColor: '#fff0f0' } : {};
+
+                            return (
+                              <td
+                                key={i}
+                                onClick={() => handleCellClick(s.id, dateStr)}
+                                style={cellStyle}
+                                title={isHoliday ? 'Hari Libur' : `Edit ${s.nama} (Tgl ${i + 1})`}
+                                className={`border border-black text-center ${isHoliday ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-yellow-100'} transition-colors ${cellVal === '•' ? 'font-black text-lg' : 'font-bold'}`}
+                              >
+                                {cellVal}
+                              </td>
+                            );
+                          })}
+
+                          <td className="border border-black p-1 text-center font-bold text-green-700 bg-green-50/50">{s.H}</td>
+                          <td className="border border-black p-1 text-center font-bold text-yellow-600 bg-green-50/50">{s.S}</td>
+                          <td className="border border-black p-1 text-center font-bold text-blue-600 bg-green-50/50">{s.I}</td>
+                          <td className="border border-black p-1 text-center font-bold text-red-600 bg-green-50/50">{s.A}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan={daysInMonth + 7} className="p-8 text-center text-gray-400">Tidak ada data siswa untuk {displayClassName}.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: 'Hari Efektif', val: totalHariEfektif + ' Hari', color: 'bg-white text-gray-700' },
+                  { label: 'Prosen Sakit', val: pSakit + '%', color: 'bg-white text-yellow-700' },
+                  { label: 'Prosen Izin', val: pIzin + '%', color: 'bg-white text-blue-700' },
+                  { label: 'Prosen Alpa', val: pAlpa + '%', color: 'bg-white text-orange-700' }
+                ].map(b => (
+                  <div key={b.label} className={`${b.color} p-3 rounded-lg border border-yellow-300 opacity-90 shadow-sm`}>
+                    <p className="text-[9px] uppercase font-bold">{b.label}</p>
+                    <p className="text-lg font-black">{b.val}</p>
+                  </div>
+                ))}
+                <div className="col-span-2 md:col-span-4 bg-emerald-700 p-4 rounded-xl text-white shadow-md flex items-center justify-between">
+                  <span className="font-bold text-xs uppercase tracking-widest">Total Keseluruhan Ketidakhadiran</span>
+                  <span className="text-2xl font-black">{pTotal}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* FOOTER: FOLLOW & SUPPORT DEVELOPER */}
+        <footer className="mt-12 pt-8 border-t border-gray-200 text-center">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 mb-4">Follow &amp; Support Developer</p>
+          <div className="flex flex-wrap items-center justify-center gap-3 mb-5">
+            <a
+              href="https://www.instagram.com/bilqisgayahasanah?igsh=MTBjZzJ1YnNwM2V4dQ%3D%3D&utm_source=qr"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 text-xs font-semibold text-gray-700 hover:border-emerald-400 hover:text-emerald-700 transition-colors shadow-sm"
+            >
+              <Instagram size={16} /> Instagram
+            </a>
+            <a
+              href="https://www.facebook.com/share/1F4qcXn17z/?mibextid=wwXIfr"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 text-xs font-semibold text-gray-700 hover:border-emerald-400 hover:text-emerald-700 transition-colors shadow-sm"
+            >
+              <Facebook size={16} /> Facebook
+            </a>
+            <a
+              href="https://www.tiktok.com/@guru.pembelajar?_r=1&_t=ZS-95qljmeBNVx"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 text-xs font-semibold text-gray-700 hover:border-emerald-400 hover:text-emerald-700 transition-colors shadow-sm"
+            >
+              <TikTokIcon size={16} /> TikTok
+            </a>
+            <a
+              href="https://youtube.com/@guru.pembelajar02?si=ScTpoWLe5M8CnyMl"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 text-xs font-semibold text-gray-700 hover:border-emerald-400 hover:text-emerald-700 transition-colors shadow-sm"
+            >
+              <Youtube size={16} /> YouTube
+            </a>
+          </div>
+          <p className="text-[11px] text-gray-400">© 2026 Bilqis Gaya Hasanah · Aplikasi Presensi Siswa</p>
+        </footer>
+      </main>
+    </div>
+  );
+};
+
+
+  </script>
+
+  <script>
+    (function () {
+      var sourceCode = document.getElementById('app-source').textContent;
+      try {
+        var transformed = Babel.transform(sourceCode, {
+          presets: [['react', { runtime: 'classic' }]]
+        }).code;
+        var scriptEl = document.createElement('script');
+        scriptEl.text = transformed + '\n\nReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));';
+        document.body.appendChild(scriptEl);
+      } catch (err) {
+        document.getElementById('root').innerHTML =
+          '<div style="padding:24px;font-family:sans-serif;color:#b91c1c;">' +
+          '<h2>Gagal memuat aplikasi</h2><pre style="white-space:pre-wrap;">' +
+          (err && err.message ? err.message : String(err)) + '</pre></div>';
+      }
+    })();
+  </script>
+</body>
+</html>
