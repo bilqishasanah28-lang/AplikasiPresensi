@@ -6,10 +6,10 @@
   <title>Aplikasi Presensi Siswa - Untuk Guru Se-Indonesia</title>
   <link rel="icon" href="data:,">
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
   <style>
     body { margin: 0; }
     ::-webkit-scrollbar { height: 8px; width: 8px; }
@@ -23,13 +23,47 @@
 </head>
 <body>
   <div id="root">
-    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;color:#065f46;">Memuat aplikasi...</div>
+    <div id="loading-placeholder" style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;color:#065f46;text-align:center;padding:24px;">
+      Memuat aplikasi...
+    </div>
   </div>
 
-  <!-- Kode komponen disimpan sebagai teks biasa (text/plain), lalu ditranspile & dijalankan
-       secara manual di bawah dengan runtime "classic" agar TIDAK menghasilkan
-       pernyataan import ES Module (yang tidak bisa jalan langsung di file HTML biasa). -->
-  <script type="text/plain" id="app-source">
+  <script>
+    // Penangkap error global: kalau ada apa pun yang gagal (CDN diblokir, dsb),
+    // tampilkan pesan yang jelas di layar, JANGAN biarkan halaman macet blank/diam.
+    function showFatalError(msg) {
+      var root = document.getElementById('root');
+      if (root) {
+        root.innerHTML =
+          '<div style="max-width:640px;margin:60px auto;padding:24px;font-family:sans-serif;color:#7f1d1d;background:#fef2f2;border:1px solid #fecaca;border-radius:12px;">' +
+          '<h2 style="margin-top:0;">Aplikasi gagal dimuat</h2>' +
+          '<p style="font-size:14px;line-height:1.6;">' + msg + '</p>' +
+          '<p style="font-size:12px;color:#991b1b;">Coba: nonaktifkan sementara ekstensi ad-blocker/privasi di browser, lalu muat ulang halaman ini.</p>' +
+          '</div>';
+      }
+    }
+    window.addEventListener('error', function (e) {
+      showFatalError('Terjadi kesalahan: ' + (e.message || 'tidak diketahui') +
+        (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      showFatalError('Terjadi kesalahan (promise): ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)));
+    });
+    window.__appMounted = false;
+    setTimeout(function () {
+      if (!window.__appMounted) {
+        showFatalError(
+          'Aplikasi tidak kunjung tampil setelah beberapa detik. ' +
+          'Kemungkinan salah satu resource (React/Tailwind/Babel/XLSX) gagal dimuat dari CDN — ' +
+          'bisa karena koneksi internet lambat, atau diblokir oleh ekstensi browser (ad-blocker/privacy extension).'
+        );
+      }
+    }, 12000);
+  </script>
+
+  <!-- Kode komponen ditranspile otomatis oleh Babel Standalone (cara resmi/bawaan, bukan manipulasi DOM manual)
+       dengan opsi runtime "classic" agar TIDAK menghasilkan pernyataan import ES Module. -->
+  <script type="text/babel" data-presets='[["react", {"runtime": "classic"}]]' data-type="script">
 const { useState, useRef, useEffect } = React;
 const XLSX = window.XLSX;
 
@@ -1231,25 +1265,13 @@ const App = () => {
 };
 
 
-  </script>
-
-  <script>
-    (function () {
-      var sourceCode = document.getElementById('app-source').textContent;
-      try {
-        var transformed = Babel.transform(sourceCode, {
-          presets: [['react', { runtime: 'classic' }]]
-        }).code;
-        var scriptEl = document.createElement('script');
-        scriptEl.text = transformed + '\n\nReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));';
-        document.body.appendChild(scriptEl);
-      } catch (err) {
-        document.getElementById('root').innerHTML =
-          '<div style="padding:24px;font-family:sans-serif;color:#b91c1c;">' +
-          '<h2>Gagal memuat aplikasi</h2><pre style="white-space:pre-wrap;">' +
-          (err && err.message ? err.message : String(err)) + '</pre></div>';
-      }
-    })();
+const __root = document.getElementById('root');
+try {
+  ReactDOM.createRoot(__root).render(React.createElement(App));
+  window.__appMounted = true;
+} catch (renderErr) {
+  showFatalError('Gagal merender aplikasi: ' + renderErr.message);
+}
   </script>
 </body>
 </html>
